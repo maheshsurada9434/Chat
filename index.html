@@ -595,6 +595,7 @@ const rawDel=k=>{try{localStorage.removeItem(k)}catch{}};
 const lsGet=(k,d)=>{try{const v=localStorage.getItem(k);return v===null?d:JSON.parse(v)}catch{return d}};
 const lsSet=(k,v)=>rawSet(k,JSON.stringify(v));
 
+const DEFAULT_URL='https://sajrlqjybpsriygphnqb.supabase.co',DEFAULT_ANON='sb_publishable_nfiYn2TGhfLd9lv4z8TL-g_gtW7AWmA';
 const SYS='sys__members', GROUP='room__all', LEGACY='VM_E2E_KEY_2024_';
 const tid=(a,b)=>[a,b].sort().join('__');
 // Photos and voice notes must be real data URLs: never let a message supply a javascript: or http link
@@ -1445,7 +1446,8 @@ function bind(){
 window.addEventListener('DOMContentLoaded',()=>{
   applyTheme();buildSwatches();buildPickers();buildKeypad();bind();
   const url=rawGet('vm_url'),anon=rawGet('vm_anon'),vk=rawGet('vm_vk')||'';
-  if(url)$('#f-url').value=url;if(anon)$('#f-anon').value=anon;if(vk)$('#f-vk').value=vk;
+  // Pre-fill this vault's public Supabase details (safe to publish: the publishable key is meant for browsers)
+  $('#f-url').value=url||DEFAULT_URL;$('#f-anon').value=anon||DEFAULT_ANON;if(vk)$('#f-vk').value=vk;
   if(url&&anon&&window.supabase){
     S.url=url;S.anon=anon;S.vk=vk;
     S.sb=supabase.createClient(url,anon,{auth:{persistSession:false,autoRefreshToken:false}});

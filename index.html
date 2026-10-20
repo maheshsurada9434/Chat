@@ -221,6 +221,14 @@ details.adv[open]{padding-bottom:14px}
 .sender{font-size:12.5px;font-weight:700;margin-bottom:2px}
 .txt{white-space:pre-wrap;font-size:15px;line-height:1.45}
 .msg.mine .txt a{color:#fff;text-decoration:underline}
+.bubble.sticker,.msg.mine .bubble.sticker{background:none;border-color:transparent;box-shadow:none;-webkit-backdrop-filter:none;backdrop-filter:none;padding:2px 6px}
+.txt.stk{font-size:68px;line-height:1.1;white-space:normal;animation:pop .45s var(--spring)}
+.sticker .foot{color:var(--sub)}
+.emoji-pop .tabs{grid-column:1/-1;display:flex;gap:4px;margin-bottom:4px;position:sticky;top:-10px;background:var(--sheet);padding:2px 0 4px;z-index:1}
+.emoji-pop .tabs button{flex:1;height:32px;font-size:12.5px;font-weight:600;color:var(--sub);border-radius:16px}
+.emoji-pop .tabs button.on{background:var(--glass2);color:var(--text)}
+.emoji-pop.stk-grid{grid-template-columns:repeat(4,1fr)}
+.emoji-pop.stk-grid .st{height:68px;font-size:40px}
 .txt.big{font-size:34px;line-height:1.2;white-space:normal}
 .bubble.gone .txt{font-style:italic;opacity:.7}
 .bubble.gone .txt .ic{width:14px;height:14px;vertical-align:-2px;margin-right:5px}
@@ -612,6 +620,9 @@ const DEMO=[
 const EMOJIS=['🦋','🦊','🌊','🔥','🌿','⚡','🐯','🦁','🌙','⭐','🎯','🎸','🏆','🌸','🦄','🐼'];
 const COLORS=['#a78bfa','#fb923c','#38bdf8','#f87171','#4ade80','#fbbf24','#f472b6','#34d399','#60a5fa','#e879f9'];
 const QUICK=['👍','❤️','😂','😮','😢','🙏'];
+const STICKERS={Love:['😍','🥰','💖','💘','💝','💞','🫶','💌','❤️‍🔥','💗','😻','🌹'],
+  Romance:['🌹🍷','🥂💞','🕯️🍽️','🌙✨','💐💌','🌅🏝️','🎶💃','🧸💝','🫂💖','💑','👩‍❤️‍👨','🌃💕'],
+  Kisses:['😘','💋','😗💕','😚💋','🥰😘','💏','😽','😘💞','😙','💋💋','🌹😘']};
 const EMOJI_GRID=('😀 😃 😄 😁 😆 😅 😂 🤣 😊 😇 🙂 😉 😍 🥰 😘 😋 😎 🤩 🥳 😏 😌 😴 🤔 🤗 🫡 😮 😲 😢 😭 😤 😡 🥺 😱 🤯 🙄 😬 🤝 👍 👎 👏 🙌 🙏 💪 👀 🔥 ✨ 🎉 💯 ❤️ 🧡 💛 💚 💙 💜 🖤 💔 ⭐ ⚡ ☀️ 🌙 🍕 ☕ 🎶 ✅').split(' ');
 const TTLS=[[0,'Off'],[3600e3,'1 hour'],[86400e3,'24 hours'],[604800e3,'7 days']];
 const SETUP_SQL=`-- Vault Messenger: run once in Supabase → SQL Editor
@@ -838,7 +849,7 @@ async function ingest(row){
     case'm':{
       const cid=p.id||('r'+row.id),map=thMap(th),ex=map.get(cid);
       if(ex){ex.rowId=row.id;ex.ts=ts;ex.pending=false;ex.failed=false;return{type:'m',th,cid,msg:ex,confirm:true}}
-      const m={cid,th,sender:by,ts,rowId:row.id,text:String(p.t||''),img:OK_IMG.test(p.i)?p.i:null,aud:p.a&&OK_AUD.test(p.a.d)?{d:p.a.d,ms:Number(p.a.ms)||0}:null,reply:p.r||null,exp:Number(p.x)||0,locked:!!p.locked};
+      const m={cid,th,sender:by,ts,rowId:row.id,text:String(p.t||''),img:OK_IMG.test(p.i)?p.i:null,aud:p.a&&OK_AUD.test(p.a.d)?{d:p.a.d,ms:Number(p.a.ms)||0}:null,reply:p.r||null,exp:Number(p.x)||0,locked:!!p.locked,sticker:p.s===1&&[...String(p.t||'')].length<=12};
       map.set(cid,m);return{type:'m',th,cid,msg:m};
     }
     case'react':{const o=((S.react[th]??={})[p.m]??={});const c=o[by];if(!c||ts>=c.ts)o[by]={e:String(p.e||'').slice(0,8),ts};return{type:'react',th,cid:p.m,by}}
@@ -875,10 +886,10 @@ async function sendRaw(th,payload){
   const{data,error}=await S.sb.from('messages').insert(row).select('id,created_at').single();
   if(error)throw error;return data;
 }
-async function sendMessage({text,img,aud,reply,ttl}){
+async function sendMessage({text,img,aud,reply,ttl,sticker}){
   const th=S.thread,cid=uid(),exp=ttl?Date.now()+ttl:0;
-  const p={k:'m',id:cid};if(text)p.t=text;if(img)p.i=img;if(aud)p.a=aud;if(reply)p.r=reply;if(exp)p.x=exp;
-  const m={cid,th,sender:S.me.id,ts:Date.now(),text:text||'',img:img||null,aud:aud||null,reply:reply||null,exp,pending:true,_p:p};
+  const p={k:'m',id:cid};if(text)p.t=text;if(sticker)p.s=1;if(img)p.i=img;if(aud)p.a=aud;if(reply)p.r=reply;if(exp)p.x=exp;
+  const m={cid,th,sender:S.me.id,ts:Date.now(),text:text||'',img:img||null,aud:aud||null,reply:reply||null,exp,pending:true,sticker:!!sticker,_p:p};
   thMap(th).set(cid,m);appendBubble(m,true);renderList();
   await transmit(m);
 }
@@ -1072,11 +1083,11 @@ function bubbleHTML(m,s,showName){
     let bars='';for(let i=0;i<n;i++){const hh=22+Math.abs(Math.sin(seed+i*1.7)*70);bars+=`<i style="height:${hh|0}%"></i>`}
     h+=`<div class="voice" data-aud="${m.cid}"><button class="pbtn" aria-label="Play voice message">${ic('play')}</button><div class="bars">${bars}</div><time>${fmtDur((m.aud.ms||0)/1000)}</time></div>`}
   if(v.text){const big=!m.img&&[...v.text].length<=6&&/^[\p{Extended_Pictographic}‍️\s]+$/u.test(v.text);
-    h+=`<div class="txt${big?' big':''}">${linkify(v.text)}</div>`}
+    h+=`<div class="txt${m.sticker?' stk':big?' big':''}">${m.sticker?esc(v.text):linkify(v.text)}</div>`}
   const rc=S.react[m.th]?.[m.cid];
   if(rc){const g={};Object.entries(rc).forEach(([by,o])=>{if(o.e)(g[o.e]??=[]).push(by)});
     const keys=Object.keys(g);if(keys.length)h+=`<div class="reacts">${keys.map(e=>`<button class="react${g[e].includes(S.me.id)?' me':''}" data-react="${esc(e)}" data-cid="${m.cid}" aria-label="${esc(e)} ${g[e].length}">${esc(e)}${g[e].length>1?`<small>${g[e].length}</small>`:''}</button>`).join('')}</div>`}
-  return`<div class="bubble" tabindex="0" role="button" aria-label="Message actions">${h}${foot}</div>`;
+  return`<div class="bubble${m.sticker?' sticker':''}" tabindex="0" role="button" aria-label="Message actions">${h}${foot}</div>`;
 }
 function elFor(cid){return $(`#msgs .msg[data-cid="${CSS.escape(cid)}"]`)}
 function refreshBubble(m){const el=elFor(m.cid);if(el&&S.thread===m.th)fillRow(el,m)}
@@ -1405,8 +1416,14 @@ function bind(){
   $('#file-img').onchange=e=>{pickImage(e.target.files[0]);e.target.value=''};
   $('#ctx-x').onclick=clearCtx;
   $('#btn-emoji').onclick=()=>{$('#emoji-pop').classList.toggle('on')};
-  $('#emoji-pop').innerHTML=EMOJI_GRID.map(e=>`<button type="button" aria-label="${e}">${e}</button>`).join('');
-  $('#emoji-pop').onclick=e=>{const b=e.target.closest('button');if(!b)return;const x=ta(),s=x.selectionStart??x.value.length;x.value=x.value.slice(0,s)+b.textContent+x.value.slice(x.selectionEnd??s);x.selectionStart=x.selectionEnd=s+b.textContent.length;autosize();updateMode();x.focus()};
+  const pop=$('#emoji-pop'),tabs=['Emoji',...Object.keys(STICKERS)];let tab='Emoji';
+  const paintPop=()=>{pop.classList.toggle('stk-grid',tab!=='Emoji');
+    pop.innerHTML=`<div class="tabs">${tabs.map(t=>`<button type="button" data-tab="${t}" class="${t===tab?'on':''}">${t==='Emoji'?'🙂 Emoji':t}</button>`).join('')}</div>`+
+      (tab==='Emoji'?EMOJI_GRID.map(e=>`<button type="button" aria-label="${e}">${e}</button>`).join(''):STICKERS[tab].map(e=>`<button type="button" class="st" data-st="${e}" aria-label="Sticker ${e}">${e}</button>`).join(''))};
+  paintPop();
+  pop.onclick=e=>{const b=e.target.closest('button');if(!b)return;
+    if(b.dataset.tab){tab=b.dataset.tab;paintPop();return}
+    if(b.dataset.st){if(!S.thread)return;pop.classList.remove('on');sendMessage({text:b.dataset.st,sticker:1,ttl:S.ttl[S.thread]||0});return}const x=ta(),s=x.selectionStart??x.value.length;x.value=x.value.slice(0,s)+b.textContent+x.value.slice(x.selectionEnd??s);x.selectionStart=x.selectionEnd=s+b.textContent.length;autosize();updateMode();x.focus()};
   addEventListener('paste',e=>{if(!S.thread)return;const f=[...(e.clipboardData?.files||[])].find(f=>/^image\//.test(f.type));if(f){e.preventDefault();pickImage(f)}});
   // chat header
   $('#btn-ttl').onclick=cycleTtl;$('#btn-export').onclick=exportChat;

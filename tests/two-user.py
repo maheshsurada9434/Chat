@@ -63,6 +63,11 @@ async def main():
         await A.wait_for_selector('.txt:has-text("look")', timeout=5000)
         assert await A.locator('.photo img').count() == 0, 'unsafe photo URL was rendered'
 
+        # Stickers: pick one in a pack, it arrives as a big sticker
+        await A.click('#btn-emoji'); await A.click('#emoji-pop [data-tab="Romance"]'); await A.click('#emoji-pop .st >> nth=0')
+        await B.wait_for_selector('.msg:not(.mine) .bubble.sticker', timeout=5000)
+        await A.screenshot(path='/tmp/sticker.png')
+
         await A.click('.msg.mine >> nth=0 >> .txt'); await A.click('#menu [data-act="del"]')
         await B.wait_for_selector('.bubble.gone', timeout=5000)                                          # delete for everyone
         await b.close()

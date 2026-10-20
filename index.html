@@ -619,6 +619,7 @@ create table if not exists messages(
   id bigint generated always as identity primary key,
   thread text not null, sender text not null, content text not null,
   created_at timestamptz default now());
+alter table messages add column if not exists push boolean not null default true;
 create index if not exists messages_thread_idx on messages(thread, created_at desc);
 alter table messages enable row level security;
 drop policy if exists vm_all on messages;
@@ -805,7 +806,7 @@ function lockApp(){
 }
 function signOut(wipe){
   try{S.rt&&S.sb.removeChannel(S.rt);S.live&&S.sb.removeChannel(S.live)}catch{}
-  S.rt=S.live=null;S.rtWas=false;rawDel('vm_last');
+  S.rt=S.live=null;S.rtWas=false;rawDel('vm_last');pushSub(false).catch(()=>{});
   Object.assign(S,{me:null,thread:null,msgs:{},react:{},dels:{},edits:{},readAt:{},oldest:{},more:{},rowSeen:new Set(),maxTs:0,online:new Set(),typing:{},sentRead:{},locked:false,keys:{}});
   closeSheets();$('#chat').classList.remove('open');$('#s-app').classList.remove('chat-open');document.title='Vault Messenger';
   if(wipe){['vm_vk','vm_url','vm_anon','vm_members','vm_mts'].forEach(rawDel);location.reload();return}
@@ -870,7 +871,8 @@ function previewOf(th){
 
 async function sendRaw(th,payload){
   const content=await encrypt(JSON.stringify({v:2,...payload}),th);
-  const{data,error}=await S.sb.from('messages').insert({thread:th,sender:S.me.id,content}).select('id,created_at').single();
+  const row={thread:th,sender:S.me.id,content};if(payload.k!=='m')row.push=false;
+  const{data,error}=await S.sb.from('messages').insert(row).select('id,created_at').single();
   if(error)throw error;return data;
 }
 async function sendMessage({text,img,aud,reply,ttl}){
@@ -890,6 +892,15 @@ async function transmit(m){
 }
 async function sendEvent(th,payload){try{return await sendRaw(th,payload)}catch(e){toast({text:'Could not sync: '+(e.message||'offline'),cls:'err2'});return null}}
 
+const VAPID='BM1MKTwAr65Y5B2SmjxgU1a9-PagrdWicvVUYeZvvsaWJZnST3aPxWAtPm2LtWSKfVjPc_PYi8H3zo3gChJ20bw';
+async function pushSub(on){
+  if(!('serviceWorker' in navigator&&'PushManager' in window))throw new Error('Push is not supported here. On iPhone, add the app to your Home Screen first.');
+  const reg=await navigator.serviceWorker.ready;let sub=await reg.pushManager.getSubscription();
+  if(!on){if(sub)await sub.unsubscribe();return}
+  sub=sub||await reg.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:Uint8Array.from(atob(VAPID.replace(/-/g,'+').replace(/_/g,'/')),c=>c.charCodeAt(0))});
+  const{error}=await S.sb.from('push_subs').insert({endpoint:sub.endpoint,member_id:S.me.id,sub:sub.toJSON()});
+  if(error&&error.code!=='23505')throw error;
+}
 async function loadAll(){
   const ths=myThreads();await Promise.all(ths.map(getKey));
   const LIM=60;
@@ -1307,7 +1318,7 @@ document.addEventListener('visibilitychange',()=>{if(!document.hidden&&S.me){gap
 async function enterApp(){
   $('#con-btn').disabled=true;
   S.lr=lsGet('vm_lr_'+S.me.id,{});S.ttl=lsGet('vm_ttl_'+S.me.id,{});S.listDone=false;
-  paintMe();setConn('');
+  paintMe();setConn('');if(S.set.notif&&window.Notification&&Notification.permission==='granted')pushSub(true).catch(()=>{});
   await loadAll();
   subscribe();renderList();$('#chat-view').style.display='none';$('#no-chat').style.display='flex';
   showScreen('s-app');$('#con-btn').disabled=false;
@@ -1381,7 +1392,7 @@ function bind(){
   $('#sw-enter').onclick=()=>{S.set.enter=!S.set.enter;saveSet();paintSettings()};
   $('#sw-notif').onclick=async()=>{
     if(!window.Notification){toast({text:'Alerts are not supported in this browser.',cls:'err2'});return}
-    if(S.set.notif){S.set.notif=false}else{const p=Notification.permission==='granted'?'granted':await Notification.requestPermission();S.set.notif=p==='granted';if(p!=='granted')toast({text:'Allow notifications in your browser to turn this on.',cls:'err2'})}
+    if(S.set.notif){S.set.notif=false;pushSub(false).catch(()=>{})}else{const p=Notification.permission==='granted'?'granted':await Notification.requestPermission();S.set.notif=p==='granted';if(p!=='granted')toast({text:'Allow notifications in your browser to turn this on.',cls:'err2'});else try{await pushSub(true)}catch(e){toast({text:'Alerts work only while the app is open: '+(e.message||'push failed'),cls:'err2',ms:5000})}}
     saveSet();paintSettings();
   };
   // composer
@@ -1457,7 +1468,7 @@ window.addEventListener('DOMContentLoaded',()=>{
     S.sb=supabase.createClient(url,anon,{auth:{persistSession:false,autoRefreshToken:false}});
     loadMembers().then(showPicker);
   }
-  if('serviceWorker' in navigator&&/^https?:/.test(location.protocol))navigator.serviceWorker.register('sw.js').catch(()=>{});
+  if('serviceWorker' in navigator&&/^https?:/.test(location.protocol)){navigator.serviceWorker.register('sw.js').catch(()=>{});navigator.serviceWorker.addEventListener('message',e=>{if(e.data?.thread&&S.me&&myThreads().includes(e.data.thread))openThread(e.data.thread)})}
 });
 </script>
 </body>

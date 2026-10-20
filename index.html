@@ -2,7 +2,7 @@
 <html lang="en" data-theme="dark" data-accent="violet">
 <head>
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,viewport-fit=cover">
 <meta name="theme-color" content="#070914">
 <meta name="color-scheme" content="dark light">
 <meta name="apple-mobile-web-app-capable" content="yes">
@@ -101,7 +101,9 @@ a{color:var(--aT)}
 .avatar.lg{width:56px;height:56px;font-size:26px}.avatar.md{width:46px;height:46px;font-size:22px}.avatar.sm{width:36px;height:36px;font-size:17px}.avatar.xs{width:28px;height:28px;font-size:13px}
 
 /* ═════════ SCREENS ═════════ */
-.screen{position:fixed;inset:0;z-index:1;display:none;height:calc(var(--vh)*100)}
+.screen{position:fixed;left:0;right:0;top:var(--vt,0px);z-index:1;display:none;height:calc(var(--vh)*100)}
+input,textarea,select{font-size:16px}
+html,body,button,.key{touch-action:manipulation;-webkit-text-size-adjust:100%}
 .screen.on{display:flex;animation:rise .55s var(--ease) both}
 @keyframes rise{from{opacity:0;transform:translateY(16px) scale(.985);filter:blur(6px)}to{opacity:1;transform:none;filter:none}}
 .center{align-items:center;justify-content:center;padding:max(18px,env(safe-area-inset-top)) 18px max(18px,env(safe-area-inset-bottom));overflow-y:auto}
@@ -696,7 +698,7 @@ async function decrypt(b64,t){
 /* ───────── screens ───────── */
 function showScreen(id){$$('.screen').forEach(s=>s.classList.toggle('on',s.id===id))}
 function showStep(id){$$('.step').forEach(s=>s.classList.toggle('on',s.id===id));$('#s-setup').scrollTop=0}
-function setVH(){document.documentElement.style.setProperty('--vh',((window.visualViewport?.height||innerHeight)*.01)+'px')}
+function setVH(){const v=window.visualViewport,st=document.documentElement.style;st.setProperty('--vh',((v?.height||innerHeight)*.01)+'px');st.setProperty('--vt',(v?.offsetTop||0)+'px');if(v&&v.offsetTop)scrollTo(0,0)}
 
 /* ───────── connect ───────── */
 async function doConnect(){
@@ -1443,7 +1445,7 @@ function bind(){
   ['pointerdown','keydown','touchstart'].forEach(ev=>addEventListener(ev,()=>S.lastAct=Date.now(),{passive:true}));
   setInterval(()=>{if(S.me&&!S.locked&&S.set.lock&&Date.now()-S.lastAct>S.set.lock*60000)lockApp()},10000);
   setInterval(sweepExpired,15000);
-  setVH();window.visualViewport?.addEventListener('resize',()=>{setVH();if(S.thread&&isNearBottom())scrollBottom(false)});addEventListener('resize',setVH);
+  setVH();window.visualViewport?.addEventListener('scroll',setVH);window.visualViewport?.addEventListener('resize',()=>{setVH();if(S.thread&&isNearBottom())scrollBottom(false)});addEventListener('resize',setVH);
 }
 window.addEventListener('DOMContentLoaded',()=>{
   applyTheme();buildSwatches();buildPickers();buildKeypad();bind();

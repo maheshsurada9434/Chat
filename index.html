@@ -619,11 +619,11 @@ create table if not exists messages(
   created_at timestamptz default now());
 create index if not exists messages_thread_idx on messages(thread, created_at desc);
 alter table messages enable row level security;
-do $$ begin
-  if not exists(select 1 from pg_policies where tablename='messages' and policyname='vm_all') then
-    execute 'create policy vm_all on messages for all using(true) with check(true)';
-  end if;
-end $$;
+drop policy if exists vm_all on messages;
+drop policy if exists vm_read on messages;
+drop policy if exists vm_insert on messages;
+create policy vm_read on messages for select to anon using(true);
+create policy vm_insert on messages for insert to anon with check(length(content)<3000000);
 alter publication supabase_realtime add table messages;`;
 
 const coarse=matchMedia('(pointer:coarse)').matches;
@@ -631,7 +631,7 @@ const S={sb:null,url:'',anon:'',vk:'',members:[],membersTs:0,me:null,thread:null
   msgs:{},react:{},dels:{},edits:{},readAt:{},oldest:{},more:{},rowSeen:new Set(),maxTs:0,readRow:{},
   online:new Set(),typing:{},sentRead:{},queue:Promise.resolve(),locked:false,sel:null,pin:'',fails:0,lockUntil:0,
   lr:{},hidden:{},ttl:{},drafts:{},ctx:null,attach:null,rt:null,live:null,rtWas:false,lastType:0,lastAct:Date.now(),
-  jumpN:0,find:{q:'',hits:[],i:-1},player:null,rec:null,listDone:false,tick:0,
+  jumpN:0,find:{q:'',hits:[],i:-1},player:null,rec:null,listDone:false,
   set:Object.assign({theme:'auto',accent:'violet',sound:true,notif:false,enter:!coarse,lock:0},lsGet('vm_set',{}))};
 
 /* ───────── formatting ───────── */
@@ -739,7 +739,7 @@ async function applyMembersRow(row){
   if(p.k!=='members'||!Array.isArray(p.list))return false;
   const ts=Date.parse(row.created_at)||0;if(ts<=S.membersTs)return false;
   const list=p.list.map(cleanMember).filter(Boolean);
-  if(!list.some(m=>m.id===row.sender&&m.role==='admin'))return false;
+  if(!S.members.some(m=>m.id===row.sender&&m.role==='admin'))return false;
   S.members=list;S.membersTs=ts;lsSet('vm_members',list);lsSet('vm_mts',ts);return true;
 }
 async function pushMembers(){
@@ -801,11 +801,13 @@ function lockApp(){
   if(!S.me||S.locked)return;S.locked=true;closeMenu();closeSheets();
   S.sel=S.me;showScreen('s-setup');goPin();
 }
-function signOut(){
+function signOut(wipe){
   try{S.rt&&S.sb.removeChannel(S.rt);S.live&&S.sb.removeChannel(S.live)}catch{}
   S.rt=S.live=null;S.rtWas=false;rawDel('vm_last');
   Object.assign(S,{me:null,thread:null,msgs:{},react:{},dels:{},edits:{},readAt:{},oldest:{},more:{},rowSeen:new Set(),maxTs:0,online:new Set(),typing:{},sentRead:{},locked:false,keys:{}});
-  closeSheets();$('#chat').classList.remove('open');$('#s-app').classList.remove('chat-open');showPicker();document.title='Vault Messenger';
+  closeSheets();$('#chat').classList.remove('open');$('#s-app').classList.remove('chat-open');document.title='Vault Messenger';
+  if(wipe){['vm_vk','vm_url','vm_anon','vm_members','vm_mts'].forEach(rawDel);location.reload();return}
+  showPicker();
 }
 
 /* ═════════ DATA LAYER ═════════ */
@@ -859,7 +861,7 @@ function unreadCount(th){const lr=lastRead(th),now=Date.now();let n=0;
   for(const m of thMap(th).values())if(m.sender!==S.me.id&&m.ts>lr&&(!m.exp||m.exp>now)&&!view(m).deleted)n++;return n}
 function snippet(m){const v=view(m);if(v.deleted)return'Message deleted';if(m.locked)return'Encrypted message';if(m.aud)return'Voice message';if(m.img&&!v.text)return'Photo';return v.text.replace(/\s+/g,' ').slice(0,90)}
 function previewOf(th){
-  const l=visible(th).filter(m=>!view(m).deleted||true).pop();if(!l)return null;
+  const l=visible(th).pop();if(!l)return null;
   const v=view(l),mine=l.sender===S.me.id,who=th===GROUP&&!mine?((getM(l.sender)?.name||'?')+': '):mine?'You: ':'';
   return{ts:l.ts,text:who+snippet(l),icon:v.deleted?'x':l.aud?'mic':(l.img&&!v.text)?'image':null};
 }
@@ -888,14 +890,14 @@ async function sendEvent(th,payload){try{return await sendRaw(th,payload)}catch(
 
 async function loadAll(){
   const ths=myThreads();await Promise.all(ths.map(getKey));
-  const LIM=900;
-  const{data,error}=await S.sb.from('messages').select('*').in('thread',ths).order('created_at',{ascending:false}).limit(LIM);
-  if(error){toast({text:'Could not load messages: '+error.message,cls:'err2'});return}
-  for(const r of data.slice().reverse())await ingest(r);
-  ths.forEach(t=>{if(S.more[t]===undefined)S.more[t]=data.length>=LIM});
+  const LIM=60;
+  const res=await Promise.all(ths.map(t=>S.sb.from('messages').select('*').eq('thread',t).order('created_at',{ascending:false}).limit(LIM)));
+  const bad=res.find(x=>x.error);if(bad){toast({text:'Could not load messages: '+bad.error.message,cls:'err2'});return}
+  res.forEach((x,i)=>{for(const r of x.data.slice().reverse())queueRowNow(r);if(S.more[ths[i]]===undefined)S.more[ths[i]]=x.data.length>=LIM});
+  await S.queue;
 }
 async function loadOlder(th){
-  const{data,error}=await S.sb.from('messages').select('*').eq('thread',th).lt('created_at',S.oldest[th]).order('created_at',{ascending:false}).limit(100);
+  const{data,error}=await S.sb.from('messages').select('*').eq('thread',th).lt('created_at',S.oldest[th]||new Date().toISOString()).order('created_at',{ascending:false}).limit(100);
   if(error)return;S.more[th]=data.length>=100;
   for(const r of data.slice().reverse())await ingest(r);
   const a=$('#msgs'),h=a.scrollHeight;renderMessages(th,true);a.style.scrollBehavior='auto';a.scrollTop=a.scrollHeight-h;a.style.scrollBehavior='';
@@ -907,6 +909,7 @@ async function gapFill(){
     for(const r of data||[])queueRow(r)}catch{}
 }
 function queueRow(row){S.queue=S.queue.then(()=>handleRow(row)).catch(()=>{})}
+function queueRowNow(row){S.queue=S.queue.then(()=>ingest(row)).catch(()=>{})}
 async function handleRow(row){const res=await ingest(row);if(res)applyResult(res)}
 
 /* ═════════ LIVE UPDATES → UI ═════════ */
@@ -1022,7 +1025,7 @@ function renderMessages(th,keep){
   }
   if(!keep)scrollBottom(false);updateJump();
 }
-function rowEl(m,prev,fresh,fromOther){
+function rowEl(m,prev,fresh){
   const mine=m.sender===S.me.id,cont=!!prev&&prev.sender===m.sender&&dayKey(prev.ts)===dayKey(m.ts)&&m.ts-prev.ts<300000;
   const el=document.createElement('div');el.dataset.cid=m.cid;el.dataset.cont=cont?'1':'';
   el.className='msg'+(mine?' mine':'')+(cont?' cont':'')+(fresh?' fresh':'');
@@ -1066,7 +1069,7 @@ function elFor(cid){return $(`#msgs .msg[data-cid="${CSS.escape(cid)}"]`)}
 function refreshBubble(m){const el=elFor(m.cid);if(el&&S.thread===m.th)fillRow(el,m)}
 function refreshCid(th,cid){const m=thMap(th).get(cid);if(m)refreshBubble(m)}
 function refreshTicks(){if(!S.thread)return;for(const m of thMap(S.thread).values())if(m.sender===S.me.id&&m._tick!==tickState(m))refreshBubble(m)}
-function appendBubble(m,scroll,fromOther){
+function appendBubble(m,scroll){
   const a=$('#msgs');$('#empty-st')?.remove();
   const list=visible(m.th),i=list.findIndex(x=>x.cid===m.cid);if(i<0)return;
   const prev=list[i-1]||null;
@@ -1277,10 +1280,9 @@ function sweepExpired(){
   for(const[th,map]of Object.entries(S.msgs))for(const m of map.values()){
     if(m.exp&&m.exp<=now){
       if(S.thread===th){const el=elFor(m.cid);if(el){el.remove();changed=true}}
-      if(m.sender===S.me.id&&m.rowId&&!m._purged){m._purged=1;S.sb.from('messages').delete().eq('id',m.rowId).then(()=>{},()=>{})}
     }
   }
-  if(changed||true)renderList();
+  if(changed)renderList();
 }
 
 /* ═════════ REALTIME ═════════ */
@@ -1369,7 +1371,7 @@ function bind(){
   $('#btn-settings').onclick=()=>{paintSettings();openSheet('set')};
   $('#btn-admin').onclick=()=>{renderMembers();openSheet('adm')};
   $$('[data-close]').forEach(b=>b.onclick=closeSheets);$('#set-bg').onclick=$('#adm-bg').onclick=closeSheets;
-  $('#btn-signout').onclick=()=>{closeSheets();signOut()};
+  $('#btn-signout').onclick=()=>{closeSheets();signOut(true)};
   $('#seg-theme').onclick=e=>{const b=e.target.closest('button');if(!b)return;S.set.theme=b.dataset.v;saveSet();applyTheme();paintSettings()};
   $('#seg-lock').onclick=e=>{const b=e.target.closest('button');if(!b)return;S.set.lock=+b.dataset.v;saveSet();paintSettings()};
   $('#swatches').onclick=e=>{const b=e.target.closest('.swatch');if(!b)return;S.set.accent=b.dataset.v;saveSet();applyTheme();paintSettings()};

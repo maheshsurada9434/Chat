@@ -597,6 +597,8 @@ const lsSet=(k,v)=>rawSet(k,JSON.stringify(v));
 
 const SYS='sys__members', GROUP='room__all', LEGACY='VM_E2E_KEY_2024_';
 const tid=(a,b)=>[a,b].sort().join('__');
+// Photos and voice notes must be real data URLs: never let a message supply a javascript: or http link
+const OK_IMG=/^data:image\/(jpeg|png|webp|gif);base64,[A-Za-z0-9+/=]+$/,OK_AUD=/^data:audio\/[a-z0-9.+-]+(;codecs=[a-z0-9.,]+)?;base64,[A-Za-z0-9+/=]+$/i;
 const DEMO=[
   {id:'alice',name:'Alice',emoji:'🦋',color:'#a78bfa',pin:'1111',role:'admin'},
   {id:'bob',name:'Bob',emoji:'🦊',color:'#fb923c',pin:'2222',role:'member'},
@@ -830,7 +832,7 @@ async function ingest(row){
     case'm':{
       const cid=p.id||('r'+row.id),map=thMap(th),ex=map.get(cid);
       if(ex){ex.rowId=row.id;ex.ts=ts;ex.pending=false;ex.failed=false;return{type:'m',th,cid,msg:ex,confirm:true}}
-      const m={cid,th,sender:by,ts,rowId:row.id,text:p.t||'',img:p.i||null,aud:p.a||null,reply:p.r||null,exp:Number(p.x)||0,locked:!!p.locked};
+      const m={cid,th,sender:by,ts,rowId:row.id,text:String(p.t||''),img:OK_IMG.test(p.i)?p.i:null,aud:p.a&&OK_AUD.test(p.a.d)?{d:p.a.d,ms:Number(p.a.ms)||0}:null,reply:p.r||null,exp:Number(p.x)||0,locked:!!p.locked};
       map.set(cid,m);return{type:'m',th,cid,msg:m};
     }
     case'react':{const o=((S.react[th]??={})[p.m]??={});const c=o[by];if(!c||ts>=c.ts)o[by]={e:String(p.e||'').slice(0,8),ts};return{type:'react',th,cid:p.m,by}}

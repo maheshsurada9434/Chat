@@ -48,5 +48,6 @@ On iPhone: Share → **Add to Home Screen**.
 - `index.html` is the whole app
 - `sw.js`, `manifest.webmanifest`, `icons/` make it installable
 - `scripts/make-icons.py` regenerates the icons
+- `tests/two-user.py` runs two simulated users against a fake database (`pip install playwright && playwright install chromium`, then `python3 tests/two-user.py`)
 
 Crafted by Mahesh Surada.

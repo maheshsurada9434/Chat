@@ -241,6 +241,13 @@ details.adv[open]{padding-bottom:14px}
 .quote b{display:block;color:var(--qc,var(--aT));font-size:12px}
 .msg.mine .quote{background:rgba(255,255,255,.18);--qc:#fff}
 .quote span{display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;opacity:.9}
+.gif-lock{display:flex;align-items:center;gap:8px;padding:22px 18px;border-radius:14px;background:rgba(0,0,0,.25);font-size:13px;font-weight:600}
+.gif-lock .ic{width:16px;height:16px}
+.gif-grid{grid-column:1/-1;display:grid;grid-template-columns:repeat(2,1fr);gap:6px}
+.gif-grid button{padding:0;height:90px;border-radius:12px;overflow:hidden;background:var(--glass)}
+.gif-grid img{width:100%;height:100%;object-fit:cover}
+.gif-note{grid-column:1/-1;color:var(--sub);font-size:12.5px;padding:6px}
+.gif-q{grid-column:1/-1;width:100%;height:40px;border-radius:20px;border:1px solid var(--stroke);background:var(--glass);padding:0 14px;outline:0;margin-bottom:6px}
 .photo{display:block;margin:2px -4px 6px;border-radius:14px;overflow:hidden;max-width:300px}
 .photo img{display:block;width:100%;height:auto;max-height:340px;object-fit:cover;cursor:zoom-in;background:var(--glass)}
 .voice{display:flex;align-items:center;gap:10px;min-width:210px;padding:2px 0}
@@ -572,10 +579,18 @@ details.adv[open]{padding-bottom:14px}
   <div class="note" id="demo-note" hidden style="border:1px solid var(--warn);border-radius:16px;margin-bottom:12px;color:var(--warn)">Demo members (Alice, Bob…) are still here with simple PINs. Replace them with your real people.</div>
   <div class="grp" id="m-list"></div>
   <div class="grp" style="padding:16px">
+    <strong style="font-family:var(--display)">GIF search</strong>
+    <p class="sub" style="margin:6px 0 10px">Paste a free Giphy API key to turn on GIFs for everyone. Mature (R-rated) GIFs stay off for each person until you allow them below and they confirm they are 18 or older.</p>
+    <input class="field" id="gif-key" placeholder="Giphy API key" autocomplete="off" spellcheck="false" maxlength="64">
+    <button class="btn" id="gif-save" style="margin-top:10px">Save GIF key</button>
+  </div>
+  <div class="grp" style="padding:16px">
     <strong id="m-title" style="font-family:var(--display)">Add member</strong>
     <div class="two"><div><label class="lbl" for="au-name">Name</label><input class="field" id="au-name" placeholder="Sarah" maxlength="24"></div><div><label class="lbl" for="au-pin">4-digit PIN</label><input class="field" id="au-pin" placeholder="4829" maxlength="4" inputmode="numeric" pattern="[0-9]*"></div></div>
     <span class="lbl">Avatar</span><div class="opts" id="e-row"></div>
     <span class="lbl">Colour</span><div class="opts" id="c-row"></div>
+    <label class="lbl" for="au-mature">Mature GIFs (18+)</label>
+    <select class="field" id="au-mature"><option value="0">Not allowed</option><option value="1">Allowed: this adult can see and send R-rated GIFs</option></select>
     <label class="lbl" for="au-role">Role</label>
     <select class="field" id="au-role"><option value="member">Member</option><option value="admin">Admin</option></select>
     <div class="err" id="err-adm" role="alert"></div><div class="ok" id="ok-adm"></div>
@@ -739,11 +754,11 @@ async function doConnect(){
 function cleanMember(m){
   if(!m||typeof m.id!=='string'||!/^\d{4}$/.test(m.pin||''))return null;
   return{id:m.id.slice(0,40),name:String(m.name||'?').slice(0,24),emoji:[...String(m.emoji||'🙂')].slice(0,2).join(''),
-    color:/^#[0-9a-f]{6}$/i.test(m.color)?m.color:COLORS[0],pin:m.pin,role:m.role==='admin'?'admin':'member'};
+    color:/^#[0-9a-f]{6}$/i.test(m.color)?m.color:COLORS[0],pin:m.pin,role:m.role==='admin'?'admin':'member',mature:m.mature===true};
 }
 async function loadMembers(){
   S.members=(lsGet('vm_members',null)||DEMO).map(cleanMember).filter(Boolean);
-  S.membersTs=lsGet('vm_mts',0);
+  S.membersTs=lsGet('vm_mts',0);S.gifKey=lsGet('vm_gif','');
   try{const{data}=await S.sb.from('messages').select('*').eq('thread',SYS).order('created_at',{ascending:false}).limit(1);
     if(data&&data[0])await applyMembersRow(data[0])}catch{}
 }
@@ -754,11 +769,12 @@ async function applyMembersRow(row){
   const ts=Date.parse(row.created_at)||0;if(ts<=S.membersTs)return false;
   const list=p.list.map(cleanMember).filter(Boolean);
   if(!S.members.some(m=>m.id===row.sender&&m.role==='admin'))return false;
+  if(typeof p.gif==='string'&&(p.gif===''||GIF_KEY.test(p.gif))){S.gifKey=p.gif;lsSet('vm_gif',p.gif)}
   S.members=list;S.membersTs=ts;lsSet('vm_members',list);lsSet('vm_mts',ts);return true;
 }
 async function pushMembers(){
   if(!S.sb||!S.me)return;
-  try{const content=await encrypt(JSON.stringify({k:'members',list:S.members}),SYS);
+  try{const content=await encrypt(JSON.stringify({k:'members',list:S.members,gif:S.gifKey||''}),SYS);
     const{data,error}=await S.sb.from('messages').insert({thread:SYS,sender:S.me.id,content}).select('id,created_at').single();
     if(error)throw error;S.rowSeen.add(data.id);S.membersTs=Date.parse(data.created_at)||Date.now();lsSet('vm_mts',S.membersTs);
     S.sb.from('messages').delete().eq('thread',SYS).lt('id',data.id).then(()=>{},()=>{});
@@ -849,7 +865,7 @@ async function ingest(row){
     case'm':{
       const cid=p.id||('r'+row.id),map=thMap(th),ex=map.get(cid);
       if(ex){ex.rowId=row.id;ex.ts=ts;ex.pending=false;ex.failed=false;return{type:'m',th,cid,msg:ex,confirm:true}}
-      const m={cid,th,sender:by,ts,rowId:row.id,text:String(p.t||''),img:OK_IMG.test(p.i)?p.i:null,aud:p.a&&OK_AUD.test(p.a.d)?{d:p.a.d,ms:Number(p.a.ms)||0}:null,reply:p.r||null,exp:Number(p.x)||0,locked:!!p.locked,sticker:p.s===1&&[...String(p.t||'')].length<=12};
+      const m={cid,th,sender:by,ts,rowId:row.id,text:String(p.t||''),img:OK_IMG.test(p.i)?p.i:null,aud:p.a&&OK_AUD.test(p.a.d)?{d:p.a.d,ms:Number(p.a.ms)||0}:null,reply:p.r||null,exp:Number(p.x)||0,locked:!!p.locked,sticker:p.s===1&&[...String(p.t||'')].length<=12,gif:GIF_URL.test(p.g)?p.g:null,gr:['g','pg','pg-13','r'].includes(p.gr)?p.gr:'r'};
       map.set(cid,m);return{type:'m',th,cid,msg:m};
     }
     case'react':{const o=((S.react[th]??={})[p.m]??={});const c=o[by];if(!c||ts>=c.ts)o[by]={e:String(p.e||'').slice(0,8),ts};return{type:'react',th,cid:p.m,by}}
@@ -873,7 +889,7 @@ function bumpLastRead(th,ts){if(ts>lastRead(th)){S.lr[th]=ts;lsSet('vm_lr_'+S.me
 function latestOther(th){let t=0;for(const m of thMap(th).values())if(m.sender!==S.me.id&&!m.pending&&m.ts>t)t=m.ts;return t}
 function unreadCount(th){const lr=lastRead(th),now=Date.now();let n=0;
   for(const m of thMap(th).values())if(m.sender!==S.me.id&&m.ts>lr&&(!m.exp||m.exp>now)&&!view(m).deleted)n++;return n}
-function snippet(m){const v=view(m);if(v.deleted)return'Message deleted';if(m.locked)return'Encrypted message';if(m.aud)return'Voice message';if(m.img&&!v.text)return'Photo';return v.text.replace(/\s+/g,' ').slice(0,90)}
+function snippet(m){const v=view(m);if(v.deleted)return'Message deleted';if(m.locked)return'Encrypted message';if(m.aud)return'Voice message';if(m.gif)return'GIF';if(m.img&&!v.text)return'Photo';return v.text.replace(/\s+/g,' ').slice(0,90)}
 function previewOf(th){
   const l=visible(th).pop();if(!l)return null;
   const v=view(l),mine=l.sender===S.me.id,who=th===GROUP&&!mine?((getM(l.sender)?.name||'?')+': '):mine?'You: ':'';
@@ -886,10 +902,10 @@ async function sendRaw(th,payload){
   const{data,error}=await S.sb.from('messages').insert(row).select('id,created_at').single();
   if(error)throw error;return data;
 }
-async function sendMessage({text,img,aud,reply,ttl,sticker}){
+async function sendMessage({text,img,aud,reply,ttl,sticker,gif,gr}){
   const th=S.thread,cid=uid(),exp=ttl?Date.now()+ttl:0;
-  const p={k:'m',id:cid};if(text)p.t=text;if(sticker)p.s=1;if(img)p.i=img;if(aud)p.a=aud;if(reply)p.r=reply;if(exp)p.x=exp;
-  const m={cid,th,sender:S.me.id,ts:Date.now(),text:text||'',img:img||null,aud:aud||null,reply:reply||null,exp,pending:true,sticker:!!sticker,_p:p};
+  const p={k:'m',id:cid};if(text)p.t=text;if(sticker)p.s=1;if(gif){p.g=gif;p.gr=gr}if(img)p.i=img;if(aud)p.a=aud;if(reply)p.r=reply;if(exp)p.x=exp;
+  const m={cid,th,sender:S.me.id,ts:Date.now(),text:text||'',img:img||null,aud:aud||null,reply:reply||null,exp,pending:true,sticker:!!sticker,gif:gif||null,gr:gr||'g',_p:p};
   thMap(th).set(cid,m);appendBubble(m,true);renderList();
   await transmit(m);
 }
@@ -903,6 +919,8 @@ async function transmit(m){
 }
 async function sendEvent(th,payload){try{return await sendRaw(th,payload)}catch(e){toast({text:'Could not sync: '+(e.message||'offline'),cls:'err2'});return null}}
 
+const GIF_KEY=/^[A-Za-z0-9]{10,64}$/,GIF_URL=/^https:\/\/media\d*\.giphy\.com\/[\w\/.\-]+$/;
+const canMature=()=>!!S.me?.mature&&rawGet('vm_age18_'+S.me.id)==='1';
 const VAPID='BM1MKTwAr65Y5B2SmjxgU1a9-PagrdWicvVUYeZvvsaWJZnST3aPxWAtPm2LtWSKfVjPc_PYi8H3zo3gChJ20bw';
 async function pushSub(on){
   if(!('serviceWorker' in navigator&&'PushManager' in window))throw new Error('Push is not supported here. On iPhone, add the app to your Home Screen first.');
@@ -1082,6 +1100,7 @@ function bubbleHTML(m,s,showName){
   if(m.aud){const n=30,seed=[...m.cid].reduce((a,c)=>a*31+c.charCodeAt(0)|0,7);
     let bars='';for(let i=0;i<n;i++){const hh=22+Math.abs(Math.sin(seed+i*1.7)*70);bars+=`<i style="height:${hh|0}%"></i>`}
     h+=`<div class="voice" data-aud="${m.cid}"><button class="pbtn" aria-label="Play voice message">${ic('play')}</button><div class="bars">${bars}</div><time>${fmtDur((m.aud.ms||0)/1000)}</time></div>`}
+  if(m.gif){h+=m.gr==='r'&&!canMature()?`<div class="gif-lock">${ic('lock')}<span>18+ GIF hidden</span></div>`:`<div class="photo"><img src="${esc(m.gif)}" alt="GIF" loading="lazy" decoding="async" referrerpolicy="no-referrer"></div>`}
   if(v.text){const big=!m.img&&[...v.text].length<=6&&/^[\p{Extended_Pictographic}‍️\s]+$/u.test(v.text);
     h+=`<div class="txt${m.sticker?' stk':big?' big':''}">${m.sticker?esc(v.text):linkify(v.text)}</div>`}
   const rc=S.react[m.th]?.[m.cid];
@@ -1352,9 +1371,10 @@ function buildSwatches(){
   $('#swatches').innerHTML=Object.entries(A).map(([k,[a,b]])=>`<button class="swatch" data-v="${k}" style="--s1:${a};--s2:${b}" aria-label="${k} accent"></button>`).join('');
 }
 function renderMembers(){
+  $('#gif-key').value=S.gifKey||'';
   const wrap=$('#m-list');wrap.innerHTML='';
   S.members.forEach((m,i)=>{const r=document.createElement('div');r.className='mrow';
-    r.innerHTML=`${avatar(m,'md')}<div class="mi"><strong>${esc(m.name)}</strong><small>PIN ${esc(m.pin)} · ${m.role==='admin'?'Admin':'Member'}</small></div>
+    r.innerHTML=`${avatar(m,'md')}<div class="mi"><strong>${esc(m.name)}</strong><small>PIN ${esc(m.pin)} · ${m.role==='admin'?'Admin':'Member'}${m.mature?' · 18+ GIFs':''}</small></div>
     <button class="ibtn" data-edit="${i}" aria-label="Edit ${esc(m.name)}">${ic('edit')}</button><button class="ibtn" data-del="${esc(m.id)}" aria-label="Remove ${esc(m.name)}" style="color:var(--danger)">${ic('trash')}</button>`;wrap.appendChild(r)});
   $('#demo-note').hidden=!S.members.some(m=>DEMO.some(d=>d.id===m.id&&d.pin===m.pin));
 }
@@ -1363,18 +1383,18 @@ function buildPickers(){
   $('#c-row').innerHTML=COLORS.map((c,i)=>`<button type="button" class="opt-c${i===0?' sel':''}" data-v="${c}" style="background:${c}" aria-label="Colour ${c}"></button>`).join('');
 }
 async function saveMember(){
-  const name=$('#au-name').value.trim(),pin=$('#au-pin').value.trim(),role=$('#au-role').value;
+  const name=$('#au-name').value.trim(),pin=$('#au-pin').value.trim(),role=$('#au-role').value,mature=$('#au-mature').value==='1';
   const emoji=$('.opt-e.sel')?.dataset.v||'🙂',color=$('.opt-c.sel')?.dataset.v||COLORS[0],eid=$('#au-name').dataset.eid;
   const err=$('#err-adm'),ok=$('#ok-adm');err.textContent=ok.textContent='';
   if(!name){err.textContent='Enter a name.';return}
   if(!/^\d{4}$/.test(pin)){err.textContent='PIN must be exactly 4 digits.';return}
-  if(eid){const i=S.members.findIndex(m=>m.id===eid);if(i>=0)S.members[i]={...S.members[i],name,pin,role,emoji,color};
+  if(eid){const i=S.members.findIndex(m=>m.id===eid);if(i>=0)S.members[i]={...S.members[i],name,pin,role,emoji,color,mature};
     if(eid===S.me.id&&role!=='admin'&&S.members.filter(m=>m.role==='admin').length<2){S.members[i].role='admin';err.textContent='There must be at least one admin.';return}}
-  else S.members.push({id:name.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,18)+'_'+Date.now().toString(36).slice(-4),name,pin,role,emoji,color});
+  else S.members.push({id:name.toLowerCase().replace(/[^a-z0-9]+/g,'_').slice(0,18)+'_'+Date.now().toString(36).slice(-4),name,pin,role,emoji,color,mature});
   S.me=getM(S.me.id)||S.me;lsSet('vm_members',S.members);paintMe();renderMembers();renderList();clearMemberForm();ok.textContent='Saved and synced.';
   await pushMembers();setTimeout(()=>ok.textContent='',2600);
 }
-function clearMemberForm(){$('#au-name').value='';$('#au-pin').value='';$('#au-role').value='member';delete $('#au-name').dataset.eid;$('#m-title').textContent='Add member';$('#err-adm').textContent=''}
+function clearMemberForm(){$('#au-name').value='';$('#au-pin').value='';$('#au-role').value='member';$('#au-mature').value='0';delete $('#au-name').dataset.eid;$('#m-title').textContent='Add member';$('#err-adm').textContent=''}
 async function deleteMember(id){
   if(id===S.me.id){toast({text:"You can't remove yourself.",cls:'err2'});return}
   if(S.members.length<=2){toast({text:'Keep at least 2 members.',cls:'err2'});return}
@@ -1416,13 +1436,28 @@ function bind(){
   $('#file-img').onchange=e=>{pickImage(e.target.files[0]);e.target.value=''};
   $('#ctx-x').onclick=clearCtx;
   $('#btn-emoji').onclick=()=>{$('#emoji-pop').classList.toggle('on')};
-  const pop=$('#emoji-pop'),tabs=['Emoji',...Object.keys(STICKERS)];let tab='Emoji';
-  const paintPop=()=>{pop.classList.toggle('stk-grid',tab!=='Emoji');
+  const pop=$('#emoji-pop'),tabs=['Emoji',...Object.keys(STICKERS),'GIF'];let tab='Emoji',gq='',gres=[],gmsg='';
+  const paintPop=()=>{pop.classList.toggle('stk-grid',tab!=='Emoji'&&tab!=='GIF');
     pop.innerHTML=`<div class="tabs">${tabs.map(t=>`<button type="button" data-tab="${t}" class="${t===tab?'on':''}">${t==='Emoji'?'🙂 Emoji':t}</button>`).join('')}</div>`+
-      (tab==='Emoji'?EMOJI_GRID.map(e=>`<button type="button" aria-label="${e}">${e}</button>`).join(''):STICKERS[tab].map(e=>`<button type="button" class="st" data-st="${e}" aria-label="Sticker ${e}">${e}</button>`).join(''))};
+      (tab==='GIF'?gifPane():tab==='Emoji'?EMOJI_GRID.map(e=>`<button type="button" aria-label="${e}">${e}</button>`).join(''):STICKERS[tab].map(e=>`<button type="button" class="st" data-st="${e}" aria-label="Sticker ${e}">${e}</button>`).join(''))};
+  const gifPane=()=>{
+    if(!S.gifKey)return'<div class="gif-note">GIF search is off. Ask an admin to add a Giphy key in Members.</div>';
+    const ask=S.me?.mature&&!canMature()?'<button type="button" class="btn ghost" data-age style="grid-column:1/-1;margin:0 0 6px">I am 18 or older: allow mature GIFs</button>':'';
+    return`<input class="gif-q" id="gif-q" placeholder="Search GIFs" value="${esc(gq)}" enterkeyhint="search" autocomplete="off">${ask}<div class="gif-note">${esc(gmsg||(gres.length?'':'Type and press search to find GIFs.'))}</div><div class="gif-grid">${gres.map((g,i)=>`<button type="button" data-gif="${i}" aria-label="Send GIF"><img src="${esc(g.p)}" alt="" loading="lazy" referrerpolicy="no-referrer"></button>`).join('')}</div>`};
+  const gifSearch=async()=>{gq=($('#gif-q')?.value||gq).trim();if(!gq)return;gmsg='Searching…';paintPop();
+    try{const rating=canMature()?'r':'pg-13';
+      const res=await fetch(`https://api.giphy.com/v1/gifs/search?api_key=${S.gifKey}&q=${encodeURIComponent(gq)}&limit=20&rating=${rating}&lang=en`,{referrerPolicy:'no-referrer'});
+      if(!res.ok)throw new Error(res.status);const j=await res.json();
+      gres=(j.data||[]).map(d=>({u:d.images?.fixed_height?.url,p:d.images?.fixed_height_small?.url||d.images?.fixed_height?.url,r:d.rating})).filter(g=>GIF_URL.test((g.u||'').split('?')[0])&&GIF_URL.test((g.p||'').split('?')[0]));
+      gmsg=gres.length?'':'No GIFs found.'}catch{gres=[];gmsg='Could not load GIFs. Check the key or your connection.'}
+    paintPop();$('#gif-q')?.focus()};
   paintPop();
+  pop.onkeydown=e=>{if(e.key==='Enter'&&e.target.id==='gif-q'){e.preventDefault();gifSearch()}};
   pop.onclick=e=>{const b=e.target.closest('button');if(!b)return;
     if(b.dataset.tab){tab=b.dataset.tab;paintPop();return}
+    if(b.dataset.age){rawSet('vm_age18_'+S.me.id,'1');gres=[];paintPop();return}
+    if(b.dataset.gif){const g=gres[+b.dataset.gif];if(!g||!S.thread)return;pop.classList.remove('on');
+      sendMessage({gif:g.u.split('?')[0],gr:['g','pg','pg-13','r'].includes(g.r)?g.r:'r',ttl:S.ttl[S.thread]||0});return}
     if(b.dataset.st){if(!S.thread)return;pop.classList.remove('on');sendMessage({text:b.dataset.st,sticker:1,ttl:S.ttl[S.thread]||0});return}const x=ta(),s=x.selectionStart??x.value.length;x.value=x.value.slice(0,s)+b.textContent+x.value.slice(x.selectionEnd??s);x.selectionStart=x.selectionEnd=s+b.textContent.length;autosize();updateMode();x.focus()};
   addEventListener('paste',e=>{if(!S.thread)return;const f=[...(e.clipboardData?.files||[])].find(f=>/^image\//.test(f.type));if(f){e.preventDefault();pickImage(f)}});
   // chat header
@@ -1463,9 +1498,12 @@ function bind(){
   // admin form
   $('#e-row').onclick=e=>{const b=e.target.closest('.opt-e');if(!b)return;$$('.opt-e').forEach(x=>x.classList.remove('sel'));b.classList.add('sel')};
   $('#c-row').onclick=e=>{const b=e.target.closest('.opt-c');if(!b)return;$$('.opt-c').forEach(x=>x.classList.remove('sel'));b.classList.add('sel')};
+  $('#gif-save').onclick=async()=>{const k=$('#gif-key').value.trim(),err=$('#err-adm');
+    if(k&&!GIF_KEY.test(k)){err.textContent='That does not look like a Giphy key.';return}
+    err.textContent='';S.gifKey=k;lsSet('vm_gif',k);await pushMembers();toast({text:k?'GIF search is on for everyone.':'GIF search turned off.',cls:'ok2'})};
   $('#m-save').onclick=saveMember;$('#m-clear').onclick=clearMemberForm;
   $('#m-list').onclick=e=>{const ed=e.target.closest('[data-edit]'),dl=e.target.closest('[data-del]');
-    if(ed){const m=S.members[+ed.dataset.edit];$('#au-name').value=m.name;$('#au-pin').value=m.pin;$('#au-role').value=m.role;$('#au-name').dataset.eid=m.id;$('#m-title').textContent='Edit member';
+    if(ed){const m=S.members[+ed.dataset.edit];$('#au-name').value=m.name;$('#au-pin').value=m.pin;$('#au-role').value=m.role;$('#au-mature').value=m.mature?'1':'0';$('#au-name').dataset.eid=m.id;$('#m-title').textContent='Edit member';
       $$('.opt-e').forEach(x=>x.classList.toggle('sel',x.dataset.v===m.emoji));$$('.opt-c').forEach(x=>x.classList.toggle('sel',x.dataset.v===m.color));$('#au-name').scrollIntoView({behavior:'smooth',block:'center'})}
     if(dl&&confirm('Remove this member from the vault?'))deleteMember(dl.dataset.del)};
   // global

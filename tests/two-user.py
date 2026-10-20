@@ -68,6 +68,14 @@ async def main():
         await B.wait_for_selector('.msg:not(.mine) .bubble.sticker', timeout=5000)
         await A.screenshot(path='/tmp/sticker.png')
 
+        # Mature GIFs stay hidden for a member who has not been allowed; non-Giphy links are dropped
+        await A.evaluate("sendRaw(S.thread,{k:'m',id:'g1',g:'https://media1.giphy.com/media/abc/giphy.gif',gr:'r'})")
+        await B.wait_for_selector('.gif-lock', timeout=5000)
+        assert await B.locator('img[src*="giphy"]').count() == 0, 'mature GIF loaded for a member who is not allowed'
+        await A.evaluate("sendRaw(S.thread,{k:'m',id:'g2',t:'x',g:'https://evil.example/a.gif',gr:'g'})")
+        await B.wait_for_selector('.txt:text-is("x")', timeout=5000)
+        assert await B.locator('img[src*="evil"]').count() == 0, 'non-Giphy GIF URL was rendered'
+
         await A.click('.msg.mine >> nth=0 >> .txt'); await A.click('#menu [data-act="del"]')
         await B.wait_for_selector('.bubble.gone', timeout=5000)                                          # delete for everyone
         await b.close()
